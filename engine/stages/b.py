@@ -1,22 +1,23 @@
 import logging
-import time
 
-def run(Notebook):
-    logging.info("Executing hook b")
-    Notebook.current_stage["status"] = "In Progress"
+STEPS = 5
 
-    previous_data = Notebook.data.get("a_data", [])
-    for i in range(5):
-        time.sleep(1)  # Simulate some work being done
-        Notebook.current_stage["progress"] += 1 / 5  # Update progress
-        logging.info(f"Hook b progress: {Notebook.current_stage['progress'] * 100:.2f}%")
-        if not Notebook.data.get("a_data"):
-            logging.error("No data from previous stage 'a' found. Terminating from stage 'b'.")
-            Notebook.current_stage["status"] = "Failed"
-            raise RuntimeError("No data from previous stage 'a' found. Terminating from stage 'b'.")
 
-        Notebook.data["b_data"] = list(map(lambda x: x * 2, previous_data))  # Update the data with the processed values
-        Notebook.current_stage["status"] = "Completed"
+def run(notebook):
+    """Fake stage: doubles a_data. Needs stage a to have run."""
+    logging.info("Executing stage b")
+    notebook.current_stage["status"] = "In Progress"
 
-def b_dummy(Notebook):
-    print("hi")
+    # Implicit dependency: check our own inputs up front, before any work,
+    # and fail with a message that says what we needed.
+    if not notebook.data.get("a_data"):
+        notebook.current_stage["status"] = "Failed"
+        raise RuntimeError("stage b needs a_data from stage a")
+
+    previous_data = notebook.data["a_data"]
+
+    for step in range(STEPS):
+        notebook.report((step + 1) / STEPS)
+
+    notebook.data["b_data"] = [value * 2 for value in previous_data]
+    notebook.current_stage["status"] = "Completed"
