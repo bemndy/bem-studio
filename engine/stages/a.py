@@ -1,16 +1,16 @@
 import logging
-import time
 
-def run(Notebook):
-    logging.info("Executing hook a")
-    Notebook.current_stage["status"] = "In Progress"
+STEPS = 5
 
-    for i in range(5):
-        time.sleep(1)  # Simulate some work being done
-        Notebook.current_stage["progress"] += 1 / 5  # Update progress
-        logging.info(f"Hook a progress: {Notebook.current_stage['progress'] * 100:.2f}%")
-    Notebook.data["a_data"] = [1.3, 5.4, 6.7]
-    Notebook.current_stage["status"] = "Completed"
 
-def a_dummy(Notebook):
-    print("hi")
+def run(notebook):
+    """Fake stage: produces a_data. No prerequisites."""
+    logging.info("Executing stage a")
+    notebook.current_stage["status"] = "In Progress"
+
+    for step in range(STEPS):
+        # placeholder for real work
+        notebook.report((step + 1) / STEPS)
+
+    notebook.data["a_data"] = [1.3, 5.4, 6.7]
+    notebook.current_stage["status"] = "Completed"

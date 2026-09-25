@@ -8,8 +8,7 @@ def run(notebook):
     logging.info("Executing stage b")
     notebook.current_stage["status"] = "In Progress"
 
-    # Implicit dependency: check our own inputs up front, before any work,
-    # and fail with a message that says what we needed.
+    # depends on stage a's output
     if not notebook.data.get("a_data"):
         notebook.current_stage["status"] = "Failed"
         raise RuntimeError("stage b needs a_data from stage a")

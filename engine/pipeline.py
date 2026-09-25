@@ -13,13 +13,13 @@ STAGES_DIR = Path(__file__).parent / "stages"
 class UnknownStageError(ValueError):
     """A requested stage name has no module in the stages directory.
 
-    A ValueError because it means the caller's request was bad — the API
-    turns this into a 400, not a 500.
+    Subclasses ValueError so the API can map it to a 400 (bad request)
+    rather than a 500.
     """
 
 
 class StageFailedError(RuntimeError):
-    """A stage ran and failed. Carries the stage name for attribution."""
+    """A stage ran and failed. `stage` holds the name of the failing stage."""
 
     def __init__(self, stage: str, message: str):
         self.stage = stage
@@ -27,17 +27,16 @@ class StageFailedError(RuntimeError):
 
 
 def available_stages() -> typing.List[str]:
-    """Every stage name the engine knows about.
+    """Return the sorted names of all stage modules in the stages directory.
 
-    Reads directory entries only — nothing is imported, so this is
-    microseconds and cannot pull in torch. This is the function the API
-    uses to answer "what can this engine do?".
+    Only reads directory entries; no stage module is imported, so this is
+    cheap and never loads heavy dependencies like torch.
     """
     names = []
 
     for info in pkgutil.iter_modules(path=[STAGES_DIR]):
         if info.ispkg:
-            # skip packages, we only want modules
+            # stages are single modules; ignore packages
             logging.debug(f"Skipping package: {info.name}")
             continue
         names.append(info.name)
@@ -46,13 +45,10 @@ def available_stages() -> typing.List[str]:
 
 
 def validate(stages: list) -> None:
-    """Raise if any requested stage name doesn't exist.
+    """Raise UnknownStageError if any requested stage name doesn't exist.
 
-    Extra modules in the stages directory that nobody asked for are fine —
-    that's capability we're not using today. This only checks the other
-    direction: does everything requested exist?
-
-    Imports nothing, so the API can call it before enqueueing a job.
+    Stages that exist but weren't requested are ignored. Imports nothing,
+    so it is safe to call before enqueueing a job.
     """
     known = set(available_stages())
     unknown = [stage for stage in stages if stage not in known]
@@ -64,21 +60,17 @@ def validate(stages: list) -> None:
 
 
 def load_stages(stages: list) -> typing.Dict[str, typing.Callable]:
-    """Import each requested stage module and pull out its run() function.
+    """Import each requested stage module and return its run() by stage name.
 
-    Keyed by stage name, not by position, so a stage can never end up
-    running under the wrong name. Call validate() first — this assumes the
-    names are already known to be good.
-
-    This is the expensive half: importing a stage module runs its top-level
-    code, which is why stage modules must keep heavy imports (torch,
+    Assumes the names have already passed validate(). Importing a stage
+    runs its top-level code, so stage modules keep heavy imports (torch,
     librosa) inside run() rather than at module level.
     """
     loaded = {}
 
     for stage in stages:
         if stage in loaded:
-            # already imported; a duplicate in the list is legal
+            # duplicate stage names are allowed; import once
             continue
 
         logging.info(f"Loading stage: {stage}")
@@ -108,20 +100,19 @@ class Notebook:
     source: str
     audio: str
 
-    # attributes not passed in constructor
+    # runtime state, set by run_pipeline
     overall_progress: float = 0.0
     current_stage: CurrentStage = None
     previous_stage: str = None
     stage_index: int = 0
-    data: dict = field(default_factory=dict) # way to safely initalize dict 
+    data: dict = field(default_factory=dict)  # fresh dict per instance
     on_progress: collections.abc.Callable = None
 
     def report(self, fraction: float) -> None:
-        """Record progress within the current stage and tell the caller.
+        """Record progress within the current stage and notify on_progress.
 
-        Reports facts only — which stage, where it sits in the list, how far
-        into it we are. It never blends them into one overall percentage;
-        the caller decides how to present that.
+        Calls on_progress(name, stage_index, total_stages, fraction). Overall
+        progress is left for the caller to compute.
         """
         self.current_stage["progress"] = fraction
 
@@ -135,11 +126,11 @@ class Notebook:
 
 
 def run_pipeline(notebook: Notebook, on_progress: typing.Callable = None) -> Notebook:
-    """Run the notebook's stages in order, sharing one notebook between them.
+    """Run the notebook's stages in order, passing the same notebook to each.
 
-    Stages mutate the notebook and return nothing. Dependencies are
-    implicit: a stage checks its own inputs and raises if what it needs
-    isn't there, so nothing here validates ordering.
+    Stages mutate the notebook and return nothing. Stage ordering is not
+    validated here; each stage checks its own inputs and raises if they
+    are missing.
     """
     logging.info("Starting pipeline execution")
 
